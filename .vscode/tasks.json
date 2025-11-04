@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run all tests with deno",
+      "type": "shell",
+      "command": "deno test -A",
+      "problemMatcher": [
+        "$deno"
+      ]
+    },
+    {
+      "label": "Run Deno tests",
+      "type": "shell",
+      "command": "deno test -A",
+      "problemMatcher": [
+        "$deno"
+      ]
+    },
+    {
+      "label": "Run Deno tests (tests folder)",
+      "type": "shell",
+      "command": "deno test -A tests",
+      "problemMatcher": [
+        "$deno"
+      ]
+    },
+    {
+      "label": "Run Deno tests (all)",
+      "type": "shell",
+      "command": "deno test -A",
+      "problemMatcher": [
+        "$deno"
+      ]
+    },
+    {
+      "label": "Re-run Deno tests after fixes",
+      "type": "shell",
+      "command": "deno test -A",
+      "problemMatcher": [
+        "$deno"
+      ]
+    }
+  ]
+}
