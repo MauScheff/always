@@ -10,42 +10,74 @@ Use via URL imports or local module. Example URL import (replace with your repo
 path):
 
 ```ts
-import { always, setFailureMode } from "./main.ts";
+import { always, setFailureMode } from "./mod.ts";
 ```
 
 This project targets Deno and TypeScript 5 standard decorators.
 
 ## Quick start
 
-- Method pre/post/constant
+- Guard a business invariant on a method
 
 ```ts
-class Wallet {
-  amount = 0;
+class TicketCounter {
+  available = 100;
 
   @always({
-    before: (n: number) => Number.isFinite(n),
-    constant: (self: Wallet) => self.amount >= 0,
-    after: () => true,
+    before: (count: number) => Number.isInteger(count) && count > 0,
+    constant: (self: TicketCounter) => self.available >= 0,
+    after: (remaining: number) => remaining >= 0,
   })
-  add(n: number) {
-    this.amount += n;
+  sell(count: number) {
+    this.available -= count;
+    return this.available;
   }
 }
 ```
 
-- Setter pre/post/constant
+- Harden a setter
 
 ```ts
-class Person {
-  #age = 0;
-  get age() {
-    return this.#age;
+class CustomerProfile {
+  #creditLimit = 5_000;
+  get creditLimit() {
+    return this.#creditLimit;
   }
 
-  @always({ before: (v: number) => v >= 0, after: () => true })
-  set age(v: number) {
-    this.#age = v;
+  @always({
+    before: (value: number) => Number.isFinite(value) && value >= 0,
+    constant: (self: CustomerProfile) => self.creditLimit >= 0,
+    trace: false,
+  })
+  set creditLimit(value: number) {
+    this.#creditLimit = Math.round(value);
+  }
+}
+```
+
+- Await async predicates
+
+```ts
+class InvoiceService {
+  outstanding = new Set<string>();
+
+  constructor(
+    private readonly send: (
+      id: string,
+    ) => Promise<{ status: string; id: string }>,
+  ) {}
+
+  @always({
+    before: async (invoiceId: string) => invoiceId.trim().length > 0,
+    constant: async (self: InvoiceService) => self.outstanding.size <= 50,
+    after: async (receipt: { status: string }) => receipt.status === "captured",
+    trace: false,
+  })
+  async capture(invoiceId: string) {
+    this.outstanding.add(invoiceId);
+    const receipt = await this.send(invoiceId);
+    this.outstanding.delete(invoiceId);
+    return receipt;
   }
 }
 ```
@@ -56,11 +88,11 @@ class Person {
 @always({ constant: (self: BankAccount) => self.balance >= 0 })
 class BankAccount {
   balance = 0;
-  deposit(n: number) {
-    this.balance += n;
+  deposit(amount: number) {
+    this.balance += amount;
   }
-  withdraw(n: number) {
-    this.balance -= n;
+  withdraw(amount: number) {
+    this.balance -= amount;
   }
 }
 ```
@@ -70,15 +102,21 @@ class BankAccount {
 Decorator factory: `always(specOrInvariant)` where `specOrInvariant` is:
 
 - Method/Setter spec
-  - `before(...args) => boolean` — precondition
-  - `after(result, ...args) => boolean` — postcondition
-  - `constant(self) => boolean` — checks object state before and after
+  - `before(...args) => boolean | Promise<boolean>` — precondition
+  - `after(result, ...args) => boolean | Promise<boolean>` — postcondition
+  - `constant(self) => boolean | Promise<boolean>` — checks object state before
+    and after
   - `trace: boolean | (info) => void` — tracing (true by default)
   - `failureMode: "log" | "throw"` — override failure behavior for this spec
   - Aliases: `requires` -> `before`, `ensures` -> `after`
 
 - Class spec
   - `{ constant(self) }` (alias: `invariant`)
+
+Asynchronous predicates are awaited automatically. If any predicate returns a
+promise, the decorated method or setter will produce a promise as well. Class
+decorators still expect their invariant (`constant`) to resolve synchronously so
+the constructor can fail fast when a new instance violates the contract.
 
 ### Failure handling
 

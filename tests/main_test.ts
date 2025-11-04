@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import type { FailureMode } from "../mod.ts";
 import { always, setFailureMode } from "../mod.ts";
 
@@ -229,7 +229,10 @@ Deno.test("always decorator respects failure modes", async (t) => {
       await suite.step("trace: custom handler captures events", () => {
         const logs: unknown[] = [];
         class TraceProbe {
-          @always({ before: () => false, trace: (info) => logs.push(info) })
+          @always({
+            before: () => false,
+            trace: (info: unknown) => logs.push(info),
+          })
           foo() {}
         }
         const probe = new TraceProbe();
@@ -249,6 +252,91 @@ Deno.test("always decorator respects failure modes", async (t) => {
         const off = new TraceOff();
         assertThrows(() => off.foo(), Error, "Before failed");
       });
+    });
+  });
+});
+
+Deno.test("always supports async predicates", async (t) => {
+  await withFailureMode("throw", async () => {
+    await t.step(
+      "method awaits async before/after/constant and result",
+      async () => {
+        class AsyncMath {
+          calls = 0;
+
+          @always({
+            before: async (n: number) => {
+              await Promise.resolve();
+              return n >= 0;
+            },
+            after: async (result: number, n: number) => {
+              await Promise.resolve();
+              return n === 99 || result % 4 === 0;
+            },
+            constant: async (self: AsyncMath) => {
+              await Promise.resolve();
+              return self.calls >= 0;
+            },
+            trace: false,
+          })
+          async double(n: number) {
+            await Promise.resolve();
+            if (n === 99) {
+              this.calls = -1;
+            } else {
+              this.calls += 1;
+            }
+            return n * 2;
+          }
+        }
+
+        const m = new AsyncMath();
+        assertEquals(await m.double(2), 4);
+        await assertRejects(
+          async () => await m.double(-1),
+          Error,
+          "Before failed",
+        );
+        await assertRejects(
+          async () => await m.double(1),
+          Error,
+          "After failed",
+        );
+        await assertRejects(
+          async () => await m.double(99),
+          Error,
+          "Constant failed after",
+        );
+      },
+    );
+
+    await t.step("class constant wraps async methods", async () => {
+      @always({
+        constant: (self: AsyncAccount) => self.balance >= 0,
+        trace: false,
+      })
+      class AsyncAccount {
+        balance = 0;
+
+        async deposit(n: number) {
+          await Promise.resolve();
+          this.balance += n;
+        }
+
+        async withdraw(n: number) {
+          await Promise.resolve();
+          this.balance -= n;
+        }
+      }
+
+      const account = new AsyncAccount();
+      await account.deposit(10);
+      assertEquals(account.balance, 10);
+      await assertRejects(
+        async () => await account.withdraw(20),
+        Error,
+        "Constant failed after",
+      );
     });
   });
 });
