@@ -14,6 +14,10 @@ function Spec<TCtor extends AnyConstructor>(
 function Spec<TMethod extends (...args: any[]) => any>(
   spec: MethodSpec<TMethod>,
 ): (value: TMethod, context: ClassMethodDecoratorContext) => TMethod | void;
+// Setter overload (works for static, instance, and private setters)
+function Spec<TSetter extends (value: any) => any>(
+  spec: MethodSpec<TSetter>,
+): (value: TSetter, context: any) => TSetter | void;
 function Spec(specOrInvariant: any) {
   return function (
     value: any,
@@ -34,9 +38,24 @@ function Spec(specOrInvariant: any) {
       };
     }
 
+    if ((context as any).kind === "setter") {
+      const original = value as (arg: any) => any;
+      const name = String((context as any).name);
+      return function (this: any, arg: any) {
+        if (specOrInvariant?.requires && !specOrInvariant.requires(arg)) {
+          throw new Error(`Precondition failed for ${name}`);
+        }
+        const result = original.call(this, arg);
+        if (specOrInvariant?.ensures && !specOrInvariant.ensures(result, arg)) {
+          throw new Error(`Postcondition failed for ${name}`);
+        }
+        return result;
+      };
+    }
+
     if (context.kind === "class") {
       const Base = value as new (...args: any[]) => any;
-      return class extends Base {
+      const Sub = class extends Base {
         constructor(...args: any[]) {
           super(...args);
           // Wrap all instance methods to check invariant before and after
@@ -56,8 +75,34 @@ function Spec(specOrInvariant: any) {
               return result;
             };
           }
+
+          // Wrap instance-level setters (accessors) to check invariant
+          const names = Object.getOwnPropertyNames(proto);
+          for (const name of names) {
+            const desc = Object.getOwnPropertyDescriptor(proto, name);
+            if (desc && typeof desc.set === "function") {
+              const origSet = desc.set;
+              const getter = desc.get;
+              Object.defineProperty(this, name, {
+                configurable: true,
+                enumerable: !!desc.enumerable,
+                set: (val: any) => {
+                  if (!specOrInvariant(this)) {
+                    throw new Error(`Invariant failed before ${name} (setter)`);
+                  }
+                  const r = origSet!.call(this, val);
+                  if (!specOrInvariant(this)) {
+                    throw new Error(`Invariant failed after ${name} (setter)`);
+                  }
+                  return r as any;
+                },
+                get: typeof getter === "function" ? function (this: any) { return getter!.call(this); } : undefined,
+              });
+            }
+          }
         }
       };
+      return Sub;
     }
 
     // For other kinds (get/set/field), we don't support
