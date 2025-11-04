@@ -790,7 +790,22 @@ function wrapClass<Base extends abstract new (...args: any[]) => object>(
   return Sub as Base;
 }
 
-function always(specOrInvariant: unknown) {
+type AlwaysDecorator = {
+  <This, Value extends (...args: any[]) => any>(
+    value: Value,
+    context: ClassMethodDecoratorContext<This, Value>,
+  ): Value;
+  <This, Property>(
+    value: (this: This, value: Property) => void,
+    context: ClassSetterDecoratorContext<This, Property>,
+  ): (this: This, value: Property) => void;
+  <Value extends abstract new (...args: any[]) => object>(
+    value: Value,
+    context: ClassDecoratorContext<Value>,
+  ): Value;
+};
+
+function always(specOrInvariant: unknown): AlwaysDecorator {
   const spec = resolveSpec(specOrInvariant);
   const decorator = (
     value: unknown,
@@ -826,20 +841,7 @@ function always(specOrInvariant: unknown) {
     return value;
   };
 
-  return decorator as {
-    <This, Value extends (...args: any[]) => any>(
-      value: Value,
-      context: ClassMethodDecoratorContext<This, Value>,
-    ): Value;
-    <This, Property>(
-      value: (this: This, value: Property) => void,
-      context: ClassSetterDecoratorContext<This, Property>,
-    ): (this: This, value: Property) => void;
-    <Value extends abstract new (...args: any[]) => object>(
-      value: Value,
-      context: ClassDecoratorContext<Value>,
-    ): Value;
-  };
+  return decorator as AlwaysDecorator;
 }
 
 export { always, setFailureMode };
